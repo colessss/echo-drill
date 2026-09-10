@@ -345,6 +345,20 @@
           </div>
         </div>
         <p class="hint" id="xistatus">Key not checked yet.</p>
+        <div class="two">
+          <div class="field">
+            <label for="engine">Playback engine</label>
+            <select id="engine">
+              <option value="element">Audio element</option>
+              <option value="webaudio">Web Audio</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>&nbsp;</label>
+            <button class="btn" id="testvoice" type="button" style="min-height:44px;padding:8px">Test voice (mic closed)</button>
+          </div>
+        </div>
+        <p class="hint">If AirPods go silent, try the other engine. Test voice plays the current line without opening the mic, so you can tell routing problems from playback problems.</p>
       </div>
       <div class="field">
         <label for="route">Audio device</label>
@@ -417,7 +431,7 @@
     need: $("need"), needOut: $("needOut"), rate: $("rate"), rateOut: $("rateOut"),
     window: $("window"), windowOut: $("windowOut"), gap: $("gap"), gapOut: $("gapOut"),
     mode: $("mode"), guard: $("guard"), route: $("route"),
-    output: $("output"), src: $("src"), xi: $("xi"), xivoice: $("xivoice"), xiload: $("xiload"), xistatus: $("xistatus"), xiFields: $("xiFields"),
+    output: $("output"), engine: $("engine"), testvoice: $("testvoice"), src: $("src"), xi: $("xi"), xivoice: $("xivoice"), xiload: $("xiload"), xistatus: $("xistatus"), xiFields: $("xiFields"),
     start: $("start"), replay: $("replay"), gotit: $("gotit"), skip: $("skip"),
     unsupported: $("unsupported"), micerr: $("micerr"), setup: $("setup")
   };
@@ -446,6 +460,7 @@
     xi: load("xi", ""),
     xivoice: load("xivoice", "21m00Tcm4TlvDq8ikWAM"),
     xivoices: load("xivoices", null),
+    engine: load("engine", "element"),
     guard: load("guard2", false),
     running: false,
     diag: { mic: "idle", voice: "idle", session: "auto" },
@@ -617,11 +632,13 @@
   }
   function cancelVoice() {
     try { if (synth) synth.cancel(); } catch (e) {}
+    stopCtxSource();
     try { player.onended = null; player.onerror = null; player.pause(); player.currentTime = 0; } catch (e) {}
     S.speaking = false;
   }
   function useEleven() { return S.src === "eleven" && !!S.xi; }
-  function ttsKey(text) { return "/tts/" + encodeURIComponent(S.xivoice + "|eleven_flash_v2_5|" + text); }
+  function xiSpeed() { return Math.max(0.7, Math.min(1.2, Math.round(S.rate * 20) / 20)); }
+  function ttsKey(text) { return "/tts/" + encodeURIComponent(S.xivoice + "|eleven_flash_v2_5|" + xiSpeed() + "|" + text); }
   async function elevenBlob(text) {
     var key = ttsKey(text);
     if (memCache[key]) return memCache[key];
@@ -634,7 +651,7 @@
     var res = await fetch("https://api.elevenlabs.io/v1/text-to-speech/" + S.xivoice + "?output_format=mp3_44100_64", {
       method: "POST",
       headers: { "xi-api-key": S.xi, "Content-Type": "application/json" },
-      body: JSON.stringify({ text: text, model_id: "eleven_flash_v2_5" })
+      body: JSON.stringify({ text: text, model_id: "eleven_flash_v2_5", voice_settings: { speed: xiSpeed() } })
     });
     if (!res.ok) throw new Error("ElevenLabs " + res.status);
     var blob = await res.blob();
@@ -642,7 +659,50 @@
     if (store) { try { await store.put(key, new Response(blob, { headers: { "Content-Type": "audio/mpeg" } })); } catch (e) {} }
     return blob;
   }
+  var actx = null;
+  var currentSource = null;
+  function getCtx() {
+    var AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return null;
+    if (!actx || actx.state === "closed") actx = new AC();
+    return actx;
+  }
+  function unlockCtx() {
+    var c = getCtx(); if (!c) return;
+    try {
+      if (c.state !== "running") c.resume();
+      var b = c.createBuffer(1, 1, c.sampleRate); var src = c.createBufferSource(); src.buffer = b; src.connect(c.destination); src.start(0);
+    } catch (e) {}
+  }
+  function stopCtxSource() { try { if (currentSource) { currentSource.onended = null; currentSource.stop(); } } catch (e) {} currentSource = null; }
+  function speakWebAudio(text) {
+    return elevenBlob(text).then(function (blob) { return blob.arrayBuffer(); }).then(function (buf) {
+      var c = getCtx();
+      if (!c) throw new Error("no AudioContext");
+      return new Promise(function (resolve, reject) {
+        var p = c.state !== "running" ? c.resume() : Promise.resolve();
+        Promise.resolve(p).then(function () {
+          c.decodeAudioData(buf.slice(0), function (audio) {
+            var finished = false;
+            S.speaking = true;
+            var done = function (why) {
+              if (finished) return; finished = true; clearTimeout(t);
+              diag("voice", "webaudio " + why + " (ctx " + c.state + ", " + c.sampleRate + "Hz)");
+              S.speaking = false; S.speakEndAt = Date.now(); currentSource = null; resolve();
+            };
+            var src = c.createBufferSource(); src.buffer = audio; src.connect(c.destination);
+            currentSource = src;
+            src.onended = function () { done("ended"); };
+            var t = setTimeout(function () { done("timed out"); }, audio.duration * 1000 + 2500);
+            diag("voice", "webaudio playing " + audio.duration.toFixed(1) + "s (ctx " + c.state + ", " + c.sampleRate + "Hz)");
+            try { src.start(0); } catch (e) { done("start failed"); }
+          }, function (e) { reject(new Error("decode failed")); });
+        });
+      });
+    });
+  }
   function speakEleven(text) {
+    if (S.engine === "webaudio") return speakWebAudio(text);
     return elevenBlob(text).then(function (blob) {
       return new Promise(function (resolve) {
         var url = URL.createObjectURL(blob);
@@ -659,8 +719,11 @@
         player.onended = function () { done("ended"); };
         player.onerror = function () { done("playback error"); };
         player.src = url;
-        try { player.playbackRate = S.rate; } catch (e) {}
+        try { player.playbackRate = 1; } catch (e) {}
         diag("voice", "elevenlabs playing");
+        setTimeout(function () {
+          if (!finished) diag("voice", player.currentTime < 0.2 ? "STALLED at " + player.currentTime.toFixed(2) + "s (paused=" + player.paused + ")" : "playing, " + player.currentTime.toFixed(1) + "s in");
+        }, 1500);
         var pr = player.play();
         if (pr && pr.catch) pr.catch(function (err) { done("play blocked: " + (err && err.name)); });
       });
@@ -940,7 +1003,7 @@
     el.setup.open = false;
     requestWake();
     setSession(S.route === "headset" ? "playback" : (useEleven() ? "play-and-record" : "auto"));
-    unlockPlayer();
+    unlockPlayer(); unlockCtx();
     // Prime iOS audio inside the user gesture with an empty utterance.
     try { if (synth) { var u = new SpeechSynthesisUtterance(""); synth.speak(u); } } catch (e) {}
     loop(S.run);
@@ -1049,6 +1112,16 @@
     } catch (err) {
       el.xistatus.textContent = "Could not verify: " + (err && err.message);
     }
+  });
+  el.engine.value = S.engine;
+  el.engine.addEventListener("change", function () { S.engine = el.engine.value; save("engine", S.engine); });
+  el.testvoice.addEventListener("click", function () {
+    if (S.running) stop();
+    unlockPlayer(); unlockCtx();
+    setSession("playback");
+    var line = S.lines[S.idx] || "Testing one two three.";
+    setPhase("speaking", "Test", "Playing with the mic closed.");
+    speak(line).then(function () { setPhase("idle", "Ready", "Test finished. See the voice diagnostics."); });
   });
   fillVoices(); renderXi();
   el.route.value = S.route;
