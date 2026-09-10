@@ -278,6 +278,7 @@
       <div class="k">You said</div>
       <div class="t empty" id="heard">nothing yet</div>
       <div class="scoreline"><span>words <b id="score">&ndash;</b></span><span>attempt <b id="attempt">0</b></span></div>
+      <div class="scoreline" id="diag" style="color:var(--ink-3)">mic: idle &middot; voice: idle</div>
     </div>
   </section>
 
@@ -409,6 +410,7 @@
     mode: load("mode", "loop"),
     guard: load("guard2", false),
     running: false,
+    diag: { mic: "idle", voice: "idle" },
     speaking: false,
     speakEndAt: 0,
     run: 0,
@@ -516,6 +518,11 @@
     var total = words(S.lines[S.idx] || "").length;
     el.score.textContent = r ? hitCount(r) + "/" + total : "\u2013/" + total;
   }
+  function diag(k, v) {
+    S.diag[k] = v;
+    var d = $("diag");
+    if (d) d.textContent = "mic: " + S.diag.mic + " \u00B7 voice: " + S.diag.voice;
+  }
   function renderCounts() {
     el.total.textContent = S.lines.length;
     el.pos.textContent = S.lines.length ? Math.min(S.idx + 1, S.lines.length) : 0;
@@ -573,10 +580,11 @@
       var finished = false;
       S.speaking = true;
       var done = function () { if (finished) return; finished = true; clearTimeout(t); S.speaking = false; S.speakEndAt = Date.now(); resolve(); };
-      u.onend = done;
-      u.onerror = done;
+      u.onstart = function () { diag("voice", "playing" + (v ? " (" + v.name + ")" : "")); };
+      u.onend = function () { diag("voice", "ended"); done(); };
+      u.onerror = function (e) { diag("voice", "error " + (e && e.error)); done(); };
       // iOS sometimes never fires onend; estimate a ceiling.
-      var t = setTimeout(done, 1500 + (text.length * 110) / S.rate);
+      var t = setTimeout(function () { diag("voice", "no end event, timed out"); done(); }, 1500 + (text.length * 110) / S.rate);
       try { synth.speak(u); } catch (e) { done(); }
       // Safari can leave the synth paused after a cancel.
       try { if (synth.paused) synth.resume(); } catch (e) {}
@@ -693,7 +701,12 @@
         rec.interimResults = true;
         rec.continuous = true;
         rec.maxAlternatives = 3;
+        rec.onaudiostart = function () { diag("mic", "audio in"); };
+        rec.onsoundstart = function () { diag("mic", "sound detected"); };
+        rec.onspeechstart = function () { diag("mic", "speech detected"); };
+        rec.onstart = function () { diag("mic", "open"); };
         rec.onresult = function (e) {
+          diag("mic", "result" + (guarded() ? " (ignored: voice playing)" : ""));
           if (guarded()) return;
           var last = e.results[e.results.length - 1];
           if (!last) return;
@@ -707,6 +720,7 @@
         };
         rec.onerror = function (e) {
           var code = e && e.error;
+          diag("mic", "error: " + code);
           if (code === "not-allowed" || code === "service-not-allowed") {
             showMicError("Microphone blocked. Allow the mic for this site in your browser settings, then tap Start again.");
             finish(false, code);
@@ -715,6 +729,7 @@
         };
         rec.onend = function () {
           if (!active) return;
+          diag("mic", "closed, reopening");
           restartTimer = setTimeout(startRec, 250);
         };
         try { rec.start(); } catch (err) { restartTimer = setTimeout(startRec, 600); }
