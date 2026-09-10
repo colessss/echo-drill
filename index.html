@@ -323,12 +323,35 @@
         <p class="hint">The line passes as soon as this many of its words are heard. Lines shorter than this need every word.</p>
       </div>
       <div class="field">
+        <label for="src">Voice source</label>
+        <select id="src">
+          <option value="builtin">Phone built-in voice (free, no AirPods while mic is open)</option>
+          <option value="eleven">ElevenLabs (works with AirPods, uses credits)</option>
+        </select>
+        <p class="hint">iPhones mute the built-in voice whenever the mic is open, so it can't reach AirPods. ElevenLabs audio plays like a normal sound file and routes fine. Each line is generated once and cached on this phone; the Flash model costs half a credit per character.</p>
+      </div>
+      <div class="field" id="xiFields">
+        <label for="xi">ElevenLabs API key</label>
+        <input type="password" id="xi" autocomplete="off" placeholder="Paste your key (stays on this phone)">
+        <div class="two">
+          <div class="field">
+            <label for="xivoice">ElevenLabs voice</label>
+            <select id="xivoice"><option value="21m00Tcm4TlvDq8ikWAM">Rachel (default)</option></select>
+          </div>
+          <div class="field">
+            <label>&nbsp;</label>
+            <button class="btn" id="xiload" type="button" style="min-height:44px;padding:8px">Load voices &amp; credits</button>
+          </div>
+        </div>
+        <p class="hint" id="xistatus">Key not checked yet.</p>
+      </div>
+      <div class="field">
         <label for="route">Audio device</label>
         <select id="route">
           <option value="speaker">Phone speaker</option>
           <option value="headset">AirPods / Bluetooth headset</option>
         </select>
-        <p class="hint">iPhones can't play the voice into AirPods while the mic is open. Headset mode reads with the mic closed, then opens it for your turn, and switches the audio route each time.</p>
+        <p class="hint">Only matters with the built-in voice: headset mode reads with the mic closed, then opens it for your turn. With ElevenLabs leave this on Phone speaker.</p>
       </div>
       <div class="field">
         <label for="mode">Reading</label>
@@ -393,6 +416,7 @@
     need: $("need"), needOut: $("needOut"), rate: $("rate"), rateOut: $("rateOut"),
     window: $("window"), windowOut: $("windowOut"), gap: $("gap"), gapOut: $("gapOut"),
     mode: $("mode"), guard: $("guard"), route: $("route"),
+    src: $("src"), xi: $("xi"), xivoice: $("xivoice"), xiload: $("xiload"), xistatus: $("xistatus"), xiFields: $("xiFields"),
     start: $("start"), replay: $("replay"), gotit: $("gotit"), skip: $("skip"),
     unsupported: $("unsupported"), micerr: $("micerr"), setup: $("setup")
   };
@@ -417,6 +441,10 @@
     gap: load("gap", 2),
     mode: load("mode", "loop"),
     route: load("route", "speaker"),
+    src: load("src", "builtin"),
+    xi: load("xi", ""),
+    xivoice: load("xivoice", "21m00Tcm4TlvDq8ikWAM"),
+    xivoices: load("xivoices", null),
     guard: load("guard2", false),
     running: false,
     diag: { mic: "idle", voice: "idle", session: "auto" },
@@ -577,7 +605,76 @@
     return loose[0] || null;
   }
 
+  var SILENT = "data:audio/wav;base64,UklGRrQBAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YZABAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICA";
+  var player = new Audio();
+  player.preload = "auto";
+  player.setAttribute("playsinline", "");
+  var memCache = {};
+  function unlockPlayer() {
+    try { player.src = SILENT; var pr = player.play(); if (pr && pr.catch) pr.catch(function () {}); } catch (e) {}
+  }
+  function cancelVoice() {
+    try { if (synth) synth.cancel(); } catch (e) {}
+    try { player.onended = null; player.onerror = null; player.pause(); player.currentTime = 0; } catch (e) {}
+    S.speaking = false;
+  }
+  function useEleven() { return S.src === "eleven" && !!S.xi; }
+  function ttsKey(text) { return "/tts/" + encodeURIComponent(S.xivoice + "|eleven_flash_v2_5|" + text); }
+  async function elevenBlob(text) {
+    var key = ttsKey(text);
+    if (memCache[key]) return memCache[key];
+    var store = null;
+    try { if (window.caches) store = await caches.open("echo-tts"); } catch (e) { store = null; }
+    if (store) {
+      try { var hit = await store.match(key); if (hit) { var b = await hit.blob(); memCache[key] = b; return b; } } catch (e) {}
+    }
+    diag("voice", "elevenlabs: generating");
+    var res = await fetch("https://api.elevenlabs.io/v1/text-to-speech/" + S.xivoice + "?output_format=mp3_44100_64", {
+      method: "POST",
+      headers: { "xi-api-key": S.xi, "Content-Type": "application/json" },
+      body: JSON.stringify({ text: text, model_id: "eleven_flash_v2_5" })
+    });
+    if (!res.ok) throw new Error("ElevenLabs " + res.status);
+    var blob = await res.blob();
+    memCache[key] = blob;
+    if (store) { try { await store.put(key, new Response(blob, { headers: { "Content-Type": "audio/mpeg" } })); } catch (e) {} }
+    return blob;
+  }
+  function speakEleven(text) {
+    return elevenBlob(text).then(function (blob) {
+      return new Promise(function (resolve) {
+        var url = URL.createObjectURL(blob);
+        var finished = false;
+        S.speaking = true;
+        var done = function (why) {
+          if (finished) return; finished = true; clearTimeout(t);
+          diag("voice", "elevenlabs " + why);
+          S.speaking = false; S.speakEndAt = Date.now();
+          try { URL.revokeObjectURL(url); } catch (e) {}
+          resolve();
+        };
+        var t = setTimeout(function () { done("timed out"); }, 3000 + (text.length * 110) / S.rate);
+        player.onended = function () { done("ended"); };
+        player.onerror = function () { done("playback error"); };
+        player.src = url;
+        try { player.playbackRate = S.rate; } catch (e) {}
+        diag("voice", "elevenlabs playing");
+        var pr = player.play();
+        if (pr && pr.catch) pr.catch(function (err) { done("play blocked: " + (err && err.name)); });
+      });
+    });
+  }
   function speak(text) {
+    if (useEleven()) {
+      return speakEleven(text).catch(function (err) {
+        diag("voice", "elevenlabs failed (" + (err && err.message) + "), using built-in");
+        el.xistatus.textContent = "ElevenLabs error: " + (err && err.message) + ". Check the key and credits.";
+        return speakBuiltin(text);
+      });
+    }
+    return speakBuiltin(text);
+  }
+  function speakBuiltin(text) {
     return new Promise(function (resolve) {
       if (!synth) return resolve();
       try { synth.cancel(); } catch (e) {}
@@ -684,7 +781,7 @@
         clearTimeout(restartTimer);
         try { if (rec) { rec.onresult = null; rec.onend = null; rec.onerror = null; rec.abort(); } } catch (e) {}
         if (S.rec === rec) S.rec = null;
-        try { if (synth) synth.cancel(); } catch (e) {}
+        cancelVoice();
         resolve({ matched: matched, heard: best.text, score: best.score, error: error });
       }
       function guarded() {
@@ -821,6 +918,7 @@
   }
 
   function finishAll() {
+    cancelVoice();
     S.running = false;
     S.idx = 0; save("idx", 0);
     setPhase("matched", "Done", "Every line said.");
@@ -840,6 +938,7 @@
     el.setup.open = false;
     requestWake();
     setSession(S.route === "headset" ? "playback" : "auto");
+    unlockPlayer();
     // Prime iOS audio inside the user gesture with an empty utterance.
     try { if (synth) { var u = new SpeechSynthesisUtterance(""); synth.speak(u); } } catch (e) {}
     loop(S.run);
@@ -847,7 +946,7 @@
   function stop() {
     S.running = false; S.run++;
     try { if (S.rec) S.rec.abort(); } catch (e) {}
-    try { if (synth) synth.cancel(); } catch (e) {}
+    cancelVoice();
     setPhase("idle", "Paused", "Tap Resume to keep going from this line.");
     setSession("auto");
     renderButtons(); releaseWake();
@@ -856,7 +955,7 @@
     if (!S.running) return;
     S.run++;
     try { if (S.rec) S.rec.abort(); } catch (e) {}
-    try { if (synth) synth.cancel(); } catch (e) {}
+    cancelVoice();
     loop(S.run);
   }
   function advance() {
@@ -895,6 +994,42 @@
     refreshVoices();
   });
   el.voice.addEventListener("change", function () { S.voiceURI = el.voice.value; save("voice", S.voiceURI); });
+  function renderXi() {
+    el.xiFields.style.display = S.src === "eleven" ? "" : "none";
+  }
+  function fillVoices() {
+    var list = S.xivoices || [{ voice_id: "21m00Tcm4TlvDq8ikWAM", name: "Rachel (default)" }];
+    el.xivoice.innerHTML = "";
+    list.forEach(function (v) { var o = document.createElement("option"); o.value = v.voice_id; o.textContent = v.name; el.xivoice.appendChild(o); });
+    el.xivoice.value = S.xivoice;
+    if (el.xivoice.value !== S.xivoice && list.length) { S.xivoice = list[0].voice_id; el.xivoice.value = S.xivoice; save("xivoice", S.xivoice); }
+  }
+  el.src.value = S.src;
+  el.src.addEventListener("change", function () { S.src = el.src.value; save("src", S.src); renderXi(); });
+  el.xi.value = S.xi;
+  el.xi.addEventListener("input", function () { S.xi = el.xi.value.trim(); save("xi", S.xi); el.xistatus.textContent = S.xi ? "Key saved on this phone. Tap Load voices & credits to check it." : "No key."; });
+  el.xivoice.addEventListener("change", function () { S.xivoice = el.xivoice.value; save("xivoice", S.xivoice); });
+  el.xiload.addEventListener("click", async function () {
+    if (!S.xi) { el.xistatus.textContent = "Paste your ElevenLabs API key first."; return; }
+    el.xistatus.textContent = "Checking\u2026";
+    try {
+      var h = { "xi-api-key": S.xi };
+      var sub = await fetch("https://api.elevenlabs.io/v1/user/subscription", { headers: h });
+      if (!sub.ok) throw new Error("key rejected (" + sub.status + ")");
+      var sj = await sub.json();
+      var vr = await fetch("https://api.elevenlabs.io/v1/voices", { headers: h });
+      var vj = vr.ok ? await vr.json() : { voices: [] };
+      S.xivoices = (vj.voices || []).map(function (v) { return { voice_id: v.voice_id, name: v.name + (v.category ? " (" + v.category + ")" : "") }; });
+      if (!S.xivoices.length) S.xivoices = null;
+      save("xivoices", S.xivoices);
+      fillVoices();
+      var left = (sj.character_limit || 0) - (sj.character_count || 0);
+      el.xistatus.textContent = "Key OK. " + left.toLocaleString() + " credits left this cycle (about " + (left * 2).toLocaleString() + " characters on Flash). " + (S.xivoices ? S.xivoices.length + " voices loaded." : "");
+    } catch (err) {
+      el.xistatus.textContent = "Could not verify: " + (err && err.message);
+    }
+  });
+  fillVoices(); renderXi();
   el.route.value = S.route;
   el.route.addEventListener("change", function () { S.route = el.route.value; save("route", S.route); });
   el.mode.value = S.mode;
