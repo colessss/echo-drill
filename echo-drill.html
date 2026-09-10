@@ -654,6 +654,7 @@
       var best = { text: "", score: 0, hits: null, r: null };
       var rec = null;
       var restartTimer = null;
+      var matchedPending = false;
 
       function finish(matched, error) {
         if (!active) return;
@@ -673,7 +674,16 @@
         if (r.score >= best.score || !best.text) best = { text: text, score: r.score, hits: r.hits, r: r };
         setHeard(best.text, best.r);
         renderTarget(best.hits);
-        if (passes(r, targetText)) finish(true);
+        if (passes(r, targetText) && !matchedPending) {
+          matchedPending = true;
+          if (S.speaking) {
+            // Let the voice finish this read-through; readLoop completes the match.
+            setPhase("matched", "Got it", "Finishing the line.");
+            try { rec.onresult = null; } catch (e) {}
+          } else {
+            finish(true);
+          }
+        }
       }
       function startRec() {
         if (!active) return;
@@ -716,6 +726,7 @@
           setPhase("speaking", "Reading", S.guard ? "Say it in the pause after the voice." : "Say it along with the voice. The mic is open.");
           await speak(targetText);
           if (!active) return;
+          if (matchedPending) { finish(true); return; }
           setPhase("listening", "Your turn", "Say the line now.");
           await sleep(S.gap * 1000);
         }
