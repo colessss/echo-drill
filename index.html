@@ -332,7 +332,7 @@
         <label for="guard" style="display:flex;justify-content:flex-start;gap:10px;align-items:center;text-transform:none;letter-spacing:0;font-size:14px;font-weight:500;">
           <input type="checkbox" id="guard" style="width:20px;height:20px;accent-color:var(--listen);margin:0;"> Ignore the mic while the voice is playing
         </label>
-        <p class="hint">Stops the phone from hearing its own voice and marking the line done. Say the line in the pause between repeats, or start over the voice and finish in the pause.</p>
+        <p class="hint">Off: say the line along with the voice and it counts straight away. Turn on only if lines start passing by themselves because the phone hears its own speaker.</p>
       </div>
       <div class="two">
         <div class="field">
@@ -407,7 +407,7 @@
     window: load("window", 7),
     gap: load("gap", 2),
     mode: load("mode", "loop"),
-    guard: load("guard", true),
+    guard: load("guard2", false),
     running: false,
     speaking: false,
     speakEndAt: 0,
@@ -713,7 +713,7 @@
       async function readLoop() {
         while (active && S.running && run === S.run) {
           S.attempt++; renderCounts();
-          setPhase("speaking", "Reading", S.guard ? "Say it in the pause after the voice." : "Say it any time. The mic is open.");
+          setPhase("speaking", "Reading", S.guard ? "Say it in the pause after the voice." : "Say it along with the voice. The mic is open.");
           await speak(targetText);
           if (!active) return;
           setPhase("listening", "Your turn", "Say the line now.");
@@ -844,7 +844,7 @@
   el.mode.value = S.mode;
   el.mode.addEventListener("change", function () { S.mode = el.mode.value; save("mode", S.mode); });
   el.guard.checked = !!S.guard;
-  el.guard.addEventListener("change", function () { S.guard = el.guard.checked; save("guard", S.guard); });
+  el.guard.addEventListener("change", function () { S.guard = el.guard.checked; save("guard2", S.guard); });
 
   function bindRange(input, out, key, fmt) {
     input.value = S[key];
