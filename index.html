@@ -1007,24 +1007,36 @@
   el.src.value = S.src;
   el.src.addEventListener("change", function () { S.src = el.src.value; save("src", S.src); renderXi(); });
   el.xi.value = S.xi;
-  el.xi.addEventListener("input", function () { S.xi = el.xi.value.trim(); save("xi", S.xi); el.xistatus.textContent = S.xi ? "Key saved on this phone. Tap Load voices & credits to check it." : "No key."; });
+  function cleanKey(v) {
+    return (v || "").replace(/^\s*xi-api-key\s*[:=]\s*/i, "").replace(/^ELEVEN(LABS)?_API_KEY\s*=\s*/i, "").replace(/["'\s]/g, "");
+  }
+  el.xi.addEventListener("input", function () {
+    S.xi = cleanKey(el.xi.value); save("xi", S.xi);
+    el.xistatus.textContent = S.xi ? "Key saved on this phone (" + S.xi.length + " characters). Tap Load voices & credits to check it." : "No key.";
+  });
   el.xivoice.addEventListener("change", function () { S.xivoice = el.xivoice.value; save("xivoice", S.xivoice); });
   el.xiload.addEventListener("click", async function () {
     if (!S.xi) { el.xistatus.textContent = "Paste your ElevenLabs API key first."; return; }
     el.xistatus.textContent = "Checking\u2026";
+    async function why(res) {
+      try { var j = await res.json(); var d = j && j.detail; return d ? (d.message || d.status || JSON.stringify(d)) : res.statusText; } catch (e) { return res.statusText; }
+    }
     try {
       var h = { "xi-api-key": S.xi };
-      var sub = await fetch("https://api.elevenlabs.io/v1/user/subscription", { headers: h });
-      if (!sub.ok) throw new Error("key rejected (" + sub.status + ")");
-      var sj = await sub.json();
       var vr = await fetch("https://api.elevenlabs.io/v1/voices", { headers: h });
-      var vj = vr.ok ? await vr.json() : { voices: [] };
+      if (!vr.ok) throw new Error("rejected (" + vr.status + ": " + (await why(vr)) + "). Key has " + S.xi.length + " characters.");
+      var vj = await vr.json();
       S.xivoices = (vj.voices || []).map(function (v) { return { voice_id: v.voice_id, name: v.name + (v.category ? " (" + v.category + ")" : "") }; });
       if (!S.xivoices.length) S.xivoices = null;
       save("xivoices", S.xivoices);
       fillVoices();
-      var left = (sj.character_limit || 0) - (sj.character_count || 0);
-      el.xistatus.textContent = "Key OK. " + left.toLocaleString() + " credits left this cycle (about " + (left * 2).toLocaleString() + " characters on Flash). " + (S.xivoices ? S.xivoices.length + " voices loaded." : "");
+      var credits = "";
+      try {
+        var sub = await fetch("https://api.elevenlabs.io/v1/user/subscription", { headers: h });
+        if (sub.ok) { var sj = await sub.json(); var left = (sj.character_limit || 0) - (sj.character_count || 0); credits = left.toLocaleString() + " credits left this cycle (about " + (left * 2).toLocaleString() + " characters on Flash). "; }
+        else credits = "Credits not readable with this key (fine for speech). ";
+      } catch (e) {}
+      el.xistatus.textContent = "Key OK. " + credits + (S.xivoices ? S.xivoices.length + " voices loaded." : "Using the default voice.");
     } catch (err) {
       el.xistatus.textContent = "Could not verify: " + (err && err.message);
     }
