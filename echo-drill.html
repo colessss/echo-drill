@@ -1,0 +1,866 @@
+<title>Echo Drill</title>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Sora:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --ground: #EEF1F4;
+    --surface: #FFFFFF;
+    --surface-2: #E3E8ED;
+    --ink: #161B24;
+    --ink-2: #4B5563;
+    --ink-3: #8A94A3;
+    --line: #CAD2DB;
+    --speak: #C9771F;
+    --speak-soft: #FBEBD6;
+    --listen: #0F8B7E;
+    --listen-soft: #D6F1EC;
+    --hit: #2C9A5A;
+    --hit-soft: #DAF3E3;
+    --miss: #C4453A;
+    --miss-soft: #F9DEDA;
+    --focus: #0F8B7E;
+    --shadow: 0 10px 30px rgba(22, 27, 36, 0.10);
+    --display: "Sora", "Avenir Next", "Segoe UI", system-ui, sans-serif;
+    --body: "IBM Plex Sans", "Helvetica Neue", Arial, system-ui, sans-serif;
+    --mono: "IBM Plex Mono", "SFMono-Regular", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground: #10141A;
+      --surface: #1A2029;
+      --surface-2: #232B36;
+      --ink: #EAEEF3;
+      --ink-2: #B4BDC9;
+      --ink-3: #737E8D;
+      --line: #313B48;
+      --speak: #E39A45;
+      --speak-soft: #3A2A16;
+      --listen: #2FB7A7;
+      --listen-soft: #143732;
+      --hit: #4FC27C;
+      --hit-soft: #173A26;
+      --miss: #E0645A;
+      --miss-soft: #3E1E1B;
+      --focus: #2FB7A7;
+      --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground: #10141A;
+    --surface: #1A2029;
+    --surface-2: #232B36;
+    --ink: #EAEEF3;
+    --ink-2: #B4BDC9;
+    --ink-3: #737E8D;
+    --line: #313B48;
+    --speak: #E39A45;
+    --speak-soft: #3A2A16;
+    --listen: #2FB7A7;
+    --listen-soft: #143732;
+    --hit: #4FC27C;
+    --hit-soft: #173A26;
+    --miss: #E0645A;
+    --miss-soft: #3E1E1B;
+    --focus: #2FB7A7;
+    --shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--body);
+    font-size: 16px;
+    line-height: 1.5;
+    min-height: 100dvh;
+    padding-bottom: calc(96px + env(safe-area-inset-bottom));
+  }
+  button, select, input, textarea { font: inherit; color: inherit; }
+  button { cursor: pointer; }
+  :focus-visible { outline: 3px solid var(--focus); outline-offset: 2px; }
+
+  .app { max-width: 560px; margin: 0 auto; padding: 0 16px; }
+
+  header {
+    display: flex; align-items: baseline; justify-content: space-between;
+    padding: 18px 0 10px;
+  }
+  header h1 {
+    font-family: var(--display); font-weight: 700; font-size: 20px;
+    margin: 0; letter-spacing: -0.01em;
+  }
+  .count {
+    font-family: var(--mono); font-size: 13px; color: var(--ink-2);
+    font-variant-numeric: tabular-nums;
+  }
+  .progress {
+    height: 4px; background: var(--surface-2); border-radius: 2px; overflow: hidden;
+  }
+  .progress > i {
+    display: block; height: 100%; width: 0%; background: var(--listen);
+    transition: width .35s ease;
+  }
+
+  .banner {
+    margin: 14px 0 0; padding: 12px 14px; border-radius: 10px;
+    background: var(--miss-soft); color: var(--ink); font-size: 14px;
+    border: 1px solid var(--miss);
+  }
+
+  .stage {
+    margin-top: 18px;
+    background: var(--surface);
+    border-radius: 18px;
+    box-shadow: var(--shadow);
+    padding: 22px 20px 20px;
+    display: grid;
+    gap: 18px;
+  }
+
+  .status { display: flex; align-items: center; gap: 12px; min-height: 44px; }
+  .ring {
+    width: 40px; height: 40px; border-radius: 50%; flex: none;
+    border: 3px solid var(--line);
+    display: grid; place-items: center;
+    position: relative;
+  }
+  .ring::after {
+    content: ""; width: 14px; height: 14px; border-radius: 50%;
+    background: var(--ink-3);
+  }
+  .status .label {
+    font-family: var(--display); font-weight: 600; font-size: 15px;
+    text-transform: uppercase; letter-spacing: 0.08em; color: var(--ink-2);
+  }
+  .status .sub { font-size: 13px; color: var(--ink-3); margin-top: 1px; }
+
+  .stage[data-phase="speaking"] .ring { border-color: var(--speak); background: var(--speak-soft); }
+  .stage[data-phase="speaking"] .ring::after { background: var(--speak); }
+  .stage[data-phase="speaking"] .label { color: var(--speak); }
+
+  .stage[data-phase="listening"] .ring { border-color: var(--listen); background: var(--listen-soft); }
+  .stage[data-phase="listening"] .ring::after { background: var(--listen); animation: pulse 1.1s ease-in-out infinite; }
+  .stage[data-phase="listening"] .label { color: var(--listen); }
+
+  .stage[data-phase="matched"] .ring { border-color: var(--hit); background: var(--hit-soft); }
+  .stage[data-phase="matched"] .ring::after { background: var(--hit); width: 20px; height: 20px; }
+  .stage[data-phase="matched"] .label { color: var(--hit); }
+
+  .stage[data-phase="retry"] .ring { border-color: var(--miss); background: var(--miss-soft); }
+  .stage[data-phase="retry"] .ring::after { background: var(--miss); }
+  .stage[data-phase="retry"] .label { color: var(--miss); }
+
+  @keyframes pulse {
+    0%, 100% { transform: scale(0.7); opacity: .55; }
+    50% { transform: scale(1.25); opacity: 1; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .stage[data-phase="listening"] .ring::after { animation: none; }
+    .progress > i { transition: none; }
+  }
+
+  .target {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: clamp(24px, 6.4vw, 34px);
+    line-height: 1.25;
+    letter-spacing: -0.015em;
+    text-wrap: balance;
+    margin: 0;
+    min-height: 2.5em;
+  }
+  .target .w { transition: color .15s; }
+  .target .w.hit { color: var(--hit); }
+  .target .w.miss { color: var(--ink-3); }
+
+  .heard {
+    border-top: 1px solid var(--line);
+    padding-top: 14px;
+    display: grid; gap: 6px;
+  }
+  .heard .k {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 0.12em;
+    color: var(--ink-3); font-weight: 600;
+  }
+  .heard .t {
+    font-family: var(--mono); font-size: 15px; color: var(--ink-2);
+    min-height: 1.5em; word-break: break-word;
+  }
+  .heard .t.empty { color: var(--ink-3); font-style: italic; }
+  .scoreline {
+    display: flex; justify-content: space-between; align-items: center;
+    font-family: var(--mono); font-size: 12px; color: var(--ink-3);
+    font-variant-numeric: tabular-nums;
+  }
+  .scoreline b { color: var(--ink-2); font-weight: 500; }
+
+  details.setup {
+    margin-top: 18px;
+    background: var(--surface);
+    border-radius: 14px;
+    border: 1px solid var(--line);
+  }
+  details.setup summary {
+    list-style: none; cursor: pointer; padding: 14px 16px;
+    font-family: var(--display); font-weight: 600; font-size: 15px;
+    display: flex; justify-content: space-between; align-items: center;
+  }
+  details.setup summary::-webkit-details-marker { display: none; }
+  details.setup summary::after { content: "+"; font-weight: 500; color: var(--ink-3); font-size: 20px; }
+  details.setup[open] summary::after { content: "\2013"; }
+  .setup-body { padding: 0 16px 16px; display: grid; gap: 16px; }
+
+  .field { display: grid; gap: 6px; }
+  .field label {
+    font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em;
+    color: var(--ink-2); font-weight: 600;
+    display: flex; justify-content: space-between;
+  }
+  .field label output { font-family: var(--mono); text-transform: none; letter-spacing: 0; color: var(--ink-3); }
+  textarea, select, input[type="text"] {
+    width: 100%; padding: 10px 12px; border-radius: 10px;
+    border: 1px solid var(--line); background: var(--ground); color: var(--ink);
+  }
+  textarea { min-height: 150px; resize: vertical; font-family: var(--body); line-height: 1.5; }
+  select { appearance: none; -webkit-appearance: none; }
+  input[type="range"] { width: 100%; accent-color: var(--listen); }
+  .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .hint { font-size: 13px; color: var(--ink-3); margin: 0; }
+  .hint b { color: var(--ink-2); font-weight: 500; }
+
+  .bar {
+    position: fixed; left: 0; right: 0; bottom: 0;
+    padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+    background: color-mix(in srgb, var(--surface) 92%, transparent);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border-top: 1px solid var(--line);
+  }
+  .bar-inner { max-width: 560px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr 2fr 1fr; gap: 8px; }
+  .btn {
+    border: 1px solid var(--line); background: var(--surface-2);
+    border-radius: 12px; padding: 12px 8px; font-weight: 600; font-size: 14px;
+    font-family: var(--display); min-height: 50px;
+  }
+  .btn:disabled { opacity: .45; cursor: default; }
+  .btn.primary { background: var(--listen); border-color: var(--listen); color: #fff; font-size: 16px; }
+  .btn.primary.stop { background: var(--miss); border-color: var(--miss); }
+
+  .done {
+    display: none; margin-top: 18px; padding: 18px; border-radius: 14px;
+    background: var(--hit-soft); border: 1px solid var(--hit);
+    font-family: var(--display); font-weight: 600; text-align: center;
+  }
+  .done.show { display: block; }
+</style>
+
+<div class="app">
+  <header>
+    <h1>Echo Drill</h1>
+    <div class="count"><span id="pos">0</span> / <span id="total">0</span></div>
+  </header>
+  <div class="progress"><i id="bar"></i></div>
+
+  <div class="banner" id="unsupported" hidden></div>
+  <div class="banner" id="micerr" hidden></div>
+
+  <section class="stage" id="stage" data-phase="idle">
+    <div class="status">
+      <div class="ring" aria-hidden="true"></div>
+      <div>
+        <div class="label" id="label">Ready</div>
+        <div class="sub" id="sub">Tap Start. The line plays on repeat until you say it.</div>
+      </div>
+    </div>
+    <p class="target" id="target"></p>
+    <div class="heard">
+      <div class="k">You said</div>
+      <div class="t empty" id="heard">nothing yet</div>
+      <div class="scoreline"><span>match <b id="score">&ndash;</b></span><span>attempt <b id="attempt">0</b></span></div>
+    </div>
+  </section>
+
+  <div class="done" id="done">All lines done. Tap Restart to go again.</div>
+
+  <details class="setup" id="setup">
+    <summary>Lines &amp; settings</summary>
+    <div class="setup-body">
+      <div class="field">
+        <label for="lines">Lines to say <output id="linecount">0 lines</output></label>
+        <textarea id="lines" placeholder="One sentence per line"></textarea>
+        <p class="hint">One line per row. Changes save automatically on this phone.</p>
+      </div>
+      <div class="two">
+        <div class="field">
+          <label for="lang">Language</label>
+          <select id="lang">
+            <option value="en-US">English (US)</option>
+            <option value="en-GB">English (UK)</option>
+            <option value="en-AU">English (AU)</option>
+            <option value="es-ES">Spanish (Spain)</option>
+            <option value="es-MX">Spanish (Mexico)</option>
+            <option value="fr-FR">French</option>
+            <option value="de-DE">German</option>
+            <option value="it-IT">Italian</option>
+            <option value="pt-BR">Portuguese (BR)</option>
+            <option value="ja-JP">Japanese</option>
+            <option value="ko-KR">Korean</option>
+            <option value="zh-CN">Chinese (Mandarin)</option>
+            <option value="hi-IN">Hindi</option>
+            <option value="ar-SA">Arabic</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="voice">Voice</label>
+          <select id="voice"><option value="">Auto</option></select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="strict">Strictness <output id="strictOut">80%</output></label>
+        <input type="range" id="strict" min="50" max="100" step="5" value="80">
+        <p class="hint">Share of the line's words you must get for it to count. Lower it if the mic keeps missing.</p>
+      </div>
+      <div class="field">
+        <label for="mode">Reading</label>
+        <select id="mode">
+          <option value="loop">Keep reading on repeat until I say it</option>
+          <option value="once">Read once, then wait for me</option>
+        </select>
+      </div>
+      <div class="field">
+        <label for="guard" style="display:flex;justify-content:flex-start;gap:10px;align-items:center;text-transform:none;letter-spacing:0;font-size:14px;font-weight:500;">
+          <input type="checkbox" id="guard" style="width:20px;height:20px;accent-color:var(--listen);margin:0;"> Ignore the mic while the voice is playing
+        </label>
+        <p class="hint">Stops the phone from hearing its own voice and marking the line done. Say the line in the pause between repeats, or start over the voice and finish in the pause.</p>
+      </div>
+      <div class="two">
+        <div class="field">
+          <label for="rate">Voice speed <output id="rateOut">0.95&times;</output></label>
+          <input type="range" id="rate" min="0.6" max="1.4" step="0.05" value="0.95">
+        </div>
+        <div class="field">
+          <label for="window">Listen window (read-once mode) <output id="windowOut">7s</output></label>
+          <input type="range" id="window" min="3" max="15" step="1" value="7">
+        </div>
+      </div>
+      <div class="field">
+        <label for="gap">Pause between repeats <output id="gapOut">2.0s</output></label>
+        <input type="range" id="gap" min="0" max="6" step="0.5" value="2">
+      </div>
+      <p class="hint"><b>Phone tips:</b> use Safari on iPhone or Chrome on Android. Allow the microphone when asked. Add the page to your Home Screen for a full-screen app.</p>
+    </div>
+  </details>
+</div>
+
+<div class="bar">
+  <div class="bar-inner">
+    <button class="btn" id="replay" disabled>Replay</button>
+    <button class="btn" id="gotit" disabled>Got it</button>
+    <button class="btn primary" id="start">Start</button>
+    <button class="btn" id="skip" disabled>Skip</button>
+  </div>
+</div>
+
+<script>
+(function () {
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var synth = window.speechSynthesis;
+
+  var DEFAULT_LINES = [
+    "Good morning, how are you today?",
+    "I would like a cup of coffee, please.",
+    "The meeting starts at nine tomorrow.",
+    "Could you say that again more slowly?",
+    "Thank you very much for your help."
+  ];
+
+  var $ = function (id) { return document.getElementById(id); };
+  var el = {
+    stage: $("stage"), label: $("label"), sub: $("sub"), target: $("target"),
+    heard: $("heard"), score: $("score"), attempt: $("attempt"),
+    pos: $("pos"), total: $("total"), bar: $("bar"), done: $("done"),
+    lines: $("lines"), linecount: $("linecount"), lang: $("lang"), voice: $("voice"),
+    strict: $("strict"), strictOut: $("strictOut"), rate: $("rate"), rateOut: $("rateOut"),
+    window: $("window"), windowOut: $("windowOut"), gap: $("gap"), gapOut: $("gapOut"),
+    mode: $("mode"), guard: $("guard"),
+    start: $("start"), replay: $("replay"), gotit: $("gotit"), skip: $("skip"),
+    unsupported: $("unsupported"), micerr: $("micerr"), setup: $("setup")
+  };
+
+  // ---------- persistence ----------
+  function load(key, fallback) {
+    try { var v = localStorage.getItem("echo." + key); return v === null ? fallback : JSON.parse(v); }
+    catch (e) { return fallback; }
+  }
+  function save(key, value) {
+    try { localStorage.setItem("echo." + key, JSON.stringify(value)); } catch (e) {}
+  }
+
+  var S = {
+    lines: load("lines", DEFAULT_LINES),
+    idx: load("idx", 0),
+    lang: load("lang", "en-US"),
+    voiceURI: load("voice", ""),
+    strict: load("strict", 80),
+    rate: load("rate", 0.95),
+    window: load("window", 7),
+    gap: load("gap", 2),
+    mode: load("mode", "loop"),
+    guard: load("guard", true),
+    running: false,
+    speaking: false,
+    speakEndAt: 0,
+    run: 0,
+    attempt: 0,
+    rec: null,
+    wake: null
+  };
+  if (S.idx >= S.lines.length) S.idx = 0;
+
+  // ---------- text matching ----------
+  function norm(s) {
+    return (s || "")
+      .toLowerCase()
+      .replace(/[\u2019\u2018']/g, "")
+      .replace(/[^\p{L}\p{N}\s]/gu, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+  function words(s) { var n = norm(s); return n ? n.split(" ") : []; }
+  function lev(a, b) {
+    if (a === b) return 0;
+    var m = a.length, n = b.length, prev = [], cur = [], i, j;
+    for (j = 0; j <= n; j++) prev[j] = j;
+    for (i = 1; i <= m; i++) {
+      cur[0] = i;
+      for (j = 1; j <= n; j++) {
+        cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+      }
+      prev = cur.slice();
+    }
+    return prev[n];
+  }
+  function same(a, b) {
+    if (a === b) return true;
+    var len = Math.max(a.length, b.length);
+    if (len >= 5 && lev(a, b) <= 1) return true;
+    if (len >= 9 && lev(a, b) <= 2) return true;
+    return false;
+  }
+  // Longest common subsequence of target vs heard words; returns which target words were hit.
+  function align(target, heard) {
+    var m = target.length, n = heard.length, i, j;
+    if (!m) return { hits: [], score: 0 };
+    var dp = [];
+    for (i = 0; i <= m; i++) { dp[i] = new Array(n + 1).fill(0); }
+    for (i = 1; i <= m; i++) for (j = 1; j <= n; j++) {
+      dp[i][j] = same(target[i - 1], heard[j - 1]) ? dp[i - 1][j - 1] + 1 : Math.max(dp[i - 1][j], dp[i][j - 1]);
+    }
+    var hits = new Array(m).fill(false);
+    i = m; j = n;
+    while (i > 0 && j > 0) {
+      if (same(target[i - 1], heard[j - 1]) && dp[i][j] === dp[i - 1][j - 1] + 1) { hits[i - 1] = true; i--; j--; }
+      else if (dp[i - 1][j] >= dp[i][j - 1]) i--;
+      else j--;
+    }
+    return { hits: hits, score: dp[m][n] / m };
+  }
+  // CJK and other unspaced scripts: fall back to character overlap.
+  function scoreFor(targetText, heardText) {
+    var t = words(targetText), h = words(heardText);
+    if (t.length <= 1 && norm(targetText).length > 4) {
+      var tc = norm(targetText).replace(/\s/g, "").split("");
+      var hc = norm(heardText).replace(/\s/g, "").split("");
+      var r = align(tc, hc);
+      return { hits: [r.score >= 0.5], score: r.score, mode: "chars" };
+    }
+    return align(t, h);
+  }
+
+  // ---------- rendering ----------
+  function renderTarget(hits) {
+    var line = S.lines[S.idx] || "";
+    var raw = line.split(/\s+/).filter(Boolean);
+    var tw = words(line);
+    el.target.innerHTML = "";
+    // map raw tokens to normalized words by index (same count unless punctuation-only tokens)
+    var wi = 0;
+    raw.forEach(function (tok, k) {
+      var span = document.createElement("span");
+      span.className = "w";
+      var hasWord = words(tok).length > 0;
+      if (hits && hasWord) {
+        span.classList.add(hits[wi] ? "hit" : "miss");
+      }
+      if (hasWord) wi++;
+      span.textContent = tok;
+      el.target.appendChild(span);
+      if (k < raw.length - 1) el.target.appendChild(document.createTextNode(" "));
+    });
+  }
+  function setPhase(phase, label, sub) {
+    el.stage.dataset.phase = phase;
+    el.label.textContent = label;
+    el.sub.textContent = sub || "";
+  }
+  function setHeard(text, score) {
+    if (text) { el.heard.textContent = text; el.heard.classList.remove("empty"); }
+    else { el.heard.textContent = "nothing yet"; el.heard.classList.add("empty"); }
+    el.score.textContent = (score == null) ? "\u2013" : Math.round(score * 100) + "%";
+  }
+  function renderCounts() {
+    el.total.textContent = S.lines.length;
+    el.pos.textContent = S.lines.length ? Math.min(S.idx + 1, S.lines.length) : 0;
+    el.bar.style.width = S.lines.length ? (S.idx / S.lines.length * 100) + "%" : "0%";
+    el.attempt.textContent = S.attempt;
+    el.linecount.textContent = S.lines.length + (S.lines.length === 1 ? " line" : " lines");
+  }
+  function renderButtons() {
+    el.start.textContent = S.running ? "Stop" : (S.idx === 0 || S.idx >= S.lines.length ? "Start" : "Resume");
+    el.start.classList.toggle("stop", S.running);
+    el.replay.disabled = !S.running;
+    el.gotit.disabled = !S.running;
+    el.skip.disabled = !S.running;
+    el.start.disabled = !S.lines.length;
+  }
+
+  // ---------- speech synthesis ----------
+  var voices = [];
+  function refreshVoices() {
+    try { voices = synth ? synth.getVoices() : []; } catch (e) { voices = []; }
+    var base = S.lang.slice(0, 2).toLowerCase();
+    var list = voices.filter(function (v) { return (v.lang || "").toLowerCase().indexOf(base) === 0; });
+    if (!list.length) list = voices;
+    el.voice.innerHTML = '<option value="">Auto</option>';
+    list.forEach(function (v) {
+      var o = document.createElement("option");
+      o.value = v.voiceURI; o.textContent = v.name + " (" + v.lang + ")";
+      el.voice.appendChild(o);
+    });
+    el.voice.value = S.voiceURI;
+    if (el.voice.value !== S.voiceURI) { el.voice.value = ""; }
+  }
+  if (synth && typeof synth.onvoiceschanged !== "undefined") synth.onvoiceschanged = refreshVoices;
+
+  function pickVoice() {
+    if (!voices.length) refreshVoices();
+    var v = voices.filter(function (x) { return x.voiceURI === S.voiceURI; })[0];
+    if (v) return v;
+    var exact = voices.filter(function (x) { return (x.lang || "").replace("_", "-").toLowerCase() === S.lang.toLowerCase(); });
+    if (exact.length) return exact.filter(function (x) { return x.localService; })[0] || exact[0];
+    var base = S.lang.slice(0, 2).toLowerCase();
+    var loose = voices.filter(function (x) { return (x.lang || "").toLowerCase().indexOf(base) === 0; });
+    return loose[0] || null;
+  }
+
+  function speak(text) {
+    return new Promise(function (resolve) {
+      if (!synth) return resolve();
+      try { synth.cancel(); } catch (e) {}
+      var u = new SpeechSynthesisUtterance(text);
+      u.lang = S.lang;
+      u.rate = S.rate;
+      var v = pickVoice();
+      if (v) u.voice = v;
+      var finished = false;
+      S.speaking = true;
+      var done = function () { if (finished) return; finished = true; clearTimeout(t); S.speaking = false; S.speakEndAt = Date.now(); resolve(); };
+      u.onend = done;
+      u.onerror = done;
+      // iOS sometimes never fires onend; estimate a ceiling.
+      var t = setTimeout(done, 1500 + (text.length * 110) / S.rate);
+      try { synth.speak(u); } catch (e) { done(); }
+      // Safari can leave the synth paused after a cancel.
+      try { if (synth.paused) synth.resume(); } catch (e) {}
+    });
+  }
+
+  // ---------- speech recognition ----------
+  function listen(targetText) {
+    return new Promise(function (resolve) {
+      if (!SR) return resolve({ matched: false, heard: "", error: "unsupported" });
+      var rec = new SR();
+      S.rec = rec;
+      rec.lang = S.lang;
+      rec.interimResults = true;
+      rec.continuous = false;
+      rec.maxAlternatives = 3;
+      var best = { text: "", score: 0, hits: null };
+      var settled = false;
+      var threshold = S.strict / 100;
+      var timer = setTimeout(function () { try { rec.stop(); } catch (e) {} }, S.window * 1000);
+
+      function consider(text) {
+        var r = scoreFor(targetText, text);
+        if (r.score >= best.score || !best.text) best = { text: text, score: r.score, hits: r.hits };
+        setHeard(best.text, best.score);
+        renderTarget(best.hits);
+        if (r.score >= threshold) finish(true);
+      }
+      function finish(matched, error) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        try { rec.onresult = null; rec.onend = null; rec.onerror = null; rec.abort(); } catch (e) {}
+        if (S.rec === rec) S.rec = null;
+        resolve({ matched: matched, heard: best.text, score: best.score, error: error });
+      }
+
+      rec.onresult = function (e) {
+        var finalText = "", interim = "", i, j;
+        for (i = 0; i < e.results.length; i++) {
+          var res = e.results[i];
+          if (res.isFinal) {
+            for (j = 0; j < res.length; j++) consider((finalText + " " + res[j].transcript).trim());
+            finalText += " " + res[0].transcript;
+          } else {
+            interim += " " + res[0].transcript;
+          }
+        }
+        var combined = (finalText + " " + interim).trim();
+        if (combined) consider(combined);
+      };
+      rec.onerror = function (e) {
+        var code = e && e.error;
+        if (code === "not-allowed" || code === "service-not-allowed") {
+          showMicError("Microphone blocked. Allow the mic for this site in your browser settings, then tap Start again.");
+          finish(false, code);
+        } else if (code === "aborted") {
+          finish(false, code);
+        } else {
+          // no-speech, network, audio-capture: treat as a miss and let the loop replay.
+          finish(false, code);
+        }
+      };
+      rec.onend = function () { finish(best.score >= threshold); };
+      try { rec.start(); } catch (e) { finish(false, "start-failed"); }
+    });
+  }
+
+
+  // Loop mode: the voice repeats the line while the mic stays open; resolves on a match.
+  function drill(targetText, run) {
+    return new Promise(function (resolve) {
+      if (!SR) return resolve({ matched: false, error: "unsupported" });
+      var active = true;
+      var threshold = S.strict / 100;
+      var best = { text: "", score: 0, hits: null };
+      var rec = null;
+      var restartTimer = null;
+
+      function finish(matched, error) {
+        if (!active) return;
+        active = false;
+        clearTimeout(restartTimer);
+        try { if (rec) { rec.onresult = null; rec.onend = null; rec.onerror = null; rec.abort(); } } catch (e) {}
+        if (S.rec === rec) S.rec = null;
+        try { if (synth) synth.cancel(); } catch (e) {}
+        resolve({ matched: matched, heard: best.text, score: best.score, error: error });
+      }
+      function guarded() {
+        return S.guard && (S.speaking || (Date.now() - S.speakEndAt) < 500);
+      }
+      function consider(text) {
+        if (!text) return;
+        var r = scoreFor(targetText, text);
+        if (r.score >= best.score || !best.text) best = { text: text, score: r.score, hits: r.hits };
+        setHeard(best.text, best.score);
+        renderTarget(best.hits);
+        if (r.score >= threshold) finish(true);
+      }
+      function startRec() {
+        if (!active) return;
+        rec = new SR();
+        S.rec = rec;
+        rec.lang = S.lang;
+        rec.interimResults = true;
+        rec.continuous = true;
+        rec.maxAlternatives = 3;
+        rec.onresult = function (e) {
+          if (guarded()) return;
+          var last = e.results[e.results.length - 1];
+          if (!last) return;
+          var j;
+          for (j = 0; j < last.length; j++) consider((last[j].transcript || "").trim());
+          // a line split across two results
+          if (e.results.length >= 2) {
+            var prev = e.results[e.results.length - 2];
+            consider(((prev[0].transcript || "") + " " + (last[0].transcript || "")).trim());
+          }
+        };
+        rec.onerror = function (e) {
+          var code = e && e.error;
+          if (code === "not-allowed" || code === "service-not-allowed") {
+            showMicError("Microphone blocked. Allow the mic for this site in your browser settings, then tap Start again.");
+            finish(false, code);
+          }
+          // other errors: onend fires next and we restart
+        };
+        rec.onend = function () {
+          if (!active) return;
+          restartTimer = setTimeout(startRec, 250);
+        };
+        try { rec.start(); } catch (err) { restartTimer = setTimeout(startRec, 600); }
+      }
+
+      async function readLoop() {
+        while (active && S.running && run === S.run) {
+          S.attempt++; renderCounts();
+          setPhase("speaking", "Reading", S.guard ? "Say it in the pause after the voice." : "Say it any time. The mic is open.");
+          await speak(targetText);
+          if (!active) return;
+          setPhase("listening", "Your turn", "Say the line now.");
+          await sleep(S.gap * 1000);
+        }
+      }
+
+      startRec();
+      readLoop();
+    });
+  }
+
+  function showMicError(msg) {
+    el.micerr.textContent = msg;
+    el.micerr.hidden = false;
+  }
+
+  function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+
+  // ---------- main loop ----------
+  async function loop(run) {
+    while (S.running && run === S.run) {
+      if (S.idx >= S.lines.length) { finishAll(); return; }
+      var line = S.lines[S.idx];
+      renderCounts(); renderTarget(null); setHeard("", null);
+      var r;
+      if (S.mode === "loop") {
+        r = await drill(line, run);
+      } else {
+        setPhase("speaking", "Listen", "Line " + (S.idx + 1) + " of " + S.lines.length);
+        await speak(line);
+        if (!S.running || run !== S.run) return;
+        S.attempt++; renderCounts();
+        setPhase("listening", "Your turn", "Say the line now.");
+        r = await listen(line);
+      }
+      if (!S.running || run !== S.run) return;
+
+      if (r.error === "not-allowed" || r.error === "service-not-allowed") { stop(); return; }
+
+      if (r.matched) {
+        setPhase("matched", "Got it", "Moving on.");
+        try { if (navigator.vibrate) navigator.vibrate(40); } catch (e) {}
+        await sleep(900);
+        if (!S.running || run !== S.run) return;
+        S.idx++; S.attempt = 0; save("idx", S.idx);
+      } else {
+        var why = r.heard ? "Heard \u201C" + r.heard + "\u201D. Playing it again." : "Didn't catch that. Playing it again.";
+        setPhase("retry", "Not yet", why);
+        await sleep(S.gap * 1000);
+      }
+    }
+  }
+
+  function finishAll() {
+    S.running = false;
+    S.idx = 0; save("idx", 0);
+    setPhase("matched", "Done", "Every line said.");
+    el.done.classList.add("show");
+    el.start.textContent = "Restart";
+    el.bar.style.width = "100%";
+    renderButtons(); releaseWake();
+  }
+
+  async function start() {
+    if (!S.lines.length) return;
+    el.done.classList.remove("show");
+    el.micerr.hidden = true;
+    if (S.idx >= S.lines.length) S.idx = 0;
+    S.running = true; S.run++; S.attempt = 0;
+    renderButtons();
+    el.setup.open = false;
+    requestWake();
+    // Prime iOS audio inside the user gesture with an empty utterance.
+    try { if (synth) { var u = new SpeechSynthesisUtterance(""); synth.speak(u); } } catch (e) {}
+    loop(S.run);
+  }
+  function stop() {
+    S.running = false; S.run++;
+    try { if (S.rec) S.rec.abort(); } catch (e) {}
+    try { if (synth) synth.cancel(); } catch (e) {}
+    setPhase("idle", "Paused", "Tap Resume to keep going from this line.");
+    renderButtons(); releaseWake();
+  }
+  function restartLine() {
+    if (!S.running) return;
+    S.run++;
+    try { if (S.rec) S.rec.abort(); } catch (e) {}
+    try { if (synth) synth.cancel(); } catch (e) {}
+    loop(S.run);
+  }
+  function advance() {
+    if (!S.running) return;
+    S.idx++; S.attempt = 0; save("idx", S.idx);
+    restartLine();
+  }
+
+  async function requestWake() {
+    try { if (navigator.wakeLock && !S.wake) S.wake = await navigator.wakeLock.request("screen"); } catch (e) {}
+  }
+  function releaseWake() {
+    try { if (S.wake) { S.wake.release(); S.wake = null; } } catch (e) {}
+  }
+  document.addEventListener("visibilitychange", function () {
+    if (document.visibilityState === "visible" && S.running) requestWake();
+  });
+
+  // ---------- wiring ----------
+  el.start.addEventListener("click", function () { S.running ? stop() : start(); });
+  el.replay.addEventListener("click", restartLine);
+  el.skip.addEventListener("click", advance);
+  el.gotit.addEventListener("click", advance);
+
+  el.lines.value = S.lines.join("\n");
+  el.lines.addEventListener("input", function () {
+    S.lines = el.lines.value.split("\n").map(function (s) { return s.trim(); }).filter(Boolean);
+    if (S.idx >= S.lines.length) S.idx = 0;
+    save("lines", S.lines); save("idx", S.idx);
+    renderCounts(); renderTarget(null); renderButtons();
+  });
+
+  el.lang.value = S.lang;
+  el.lang.addEventListener("change", function () {
+    S.lang = el.lang.value; S.voiceURI = ""; save("lang", S.lang); save("voice", "");
+    refreshVoices();
+  });
+  el.voice.addEventListener("change", function () { S.voiceURI = el.voice.value; save("voice", S.voiceURI); });
+  el.mode.value = S.mode;
+  el.mode.addEventListener("change", function () { S.mode = el.mode.value; save("mode", S.mode); });
+  el.guard.checked = !!S.guard;
+  el.guard.addEventListener("change", function () { S.guard = el.guard.checked; save("guard", S.guard); });
+
+  function bindRange(input, out, key, fmt) {
+    input.value = S[key];
+    out.textContent = fmt(S[key]);
+    input.addEventListener("input", function () {
+      S[key] = parseFloat(input.value); save(key, S[key]); out.textContent = fmt(S[key]);
+    });
+  }
+  bindRange(el.strict, el.strictOut, "strict", function (v) { return v + "%"; });
+  bindRange(el.rate, el.rateOut, "rate", function (v) { return v.toFixed(2).replace(/0$/, "") + "\u00D7"; });
+  bindRange(el.window, el.windowOut, "window", function (v) { return v + "s"; });
+  bindRange(el.gap, el.gapOut, "gap", function (v) { return v.toFixed(1) + "s"; });
+
+  if (!SR || !synth) {
+    el.unsupported.hidden = false;
+    el.unsupported.textContent = !SR
+      ? "This browser can't do speech recognition. On iPhone open this page in Safari; on Android use Chrome."
+      : "This browser can't do text-to-speech. Try Safari on iPhone or Chrome on Android.";
+    if (!SR) el.start.disabled = true;
+  }
+
+  refreshVoices();
+  renderCounts(); renderTarget(null); renderButtons();
+})();
+</script>
