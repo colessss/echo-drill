@@ -323,6 +323,14 @@
         <p class="hint">The line passes as soon as this many of its words are heard. Lines shorter than this need every word.</p>
       </div>
       <div class="field">
+        <label for="route">Audio device</label>
+        <select id="route">
+          <option value="speaker">Phone speaker</option>
+          <option value="headset">AirPods / Bluetooth headset</option>
+        </select>
+        <p class="hint">iPhones can't play the voice into AirPods while the mic is open. Headset mode reads with the mic closed, then opens it for your turn, and switches the audio route each time.</p>
+      </div>
+      <div class="field">
         <label for="mode">Reading</label>
         <select id="mode">
           <option value="loop">Keep reading on repeat until I say it</option>
@@ -384,7 +392,7 @@
     lines: $("lines"), linecount: $("linecount"), lang: $("lang"), voice: $("voice"),
     need: $("need"), needOut: $("needOut"), rate: $("rate"), rateOut: $("rateOut"),
     window: $("window"), windowOut: $("windowOut"), gap: $("gap"), gapOut: $("gapOut"),
-    mode: $("mode"), guard: $("guard"),
+    mode: $("mode"), guard: $("guard"), route: $("route"),
     start: $("start"), replay: $("replay"), gotit: $("gotit"), skip: $("skip"),
     unsupported: $("unsupported"), micerr: $("micerr"), setup: $("setup")
   };
@@ -408,9 +416,10 @@
     window: load("window", 7),
     gap: load("gap", 2),
     mode: load("mode", "loop"),
+    route: load("route", "speaker"),
     guard: load("guard2", false),
     running: false,
-    diag: { mic: "idle", voice: "idle" },
+    diag: { mic: "idle", voice: "idle", session: "auto" },
     speaking: false,
     speakEndAt: 0,
     run: 0,
@@ -521,7 +530,7 @@
   function diag(k, v) {
     S.diag[k] = v;
     var d = $("diag");
-    if (d) d.textContent = "mic: " + S.diag.mic + " \u00B7 voice: " + S.diag.voice;
+    if (d) d.textContent = "mic: " + S.diag.mic + " \u00B7 voice: " + S.diag.voice + " \u00B7 session: " + S.diag.session;
   }
   function renderCounts() {
     el.total.textContent = S.lines.length;
@@ -622,7 +631,11 @@
         resolve({ matched: matched, heard: best.text, score: best.score, error: error });
       }
 
+      rec.onstart = function () { diag("mic", "open"); };
+      rec.onaudiostart = function () { diag("mic", "audio in"); };
+      rec.onspeechstart = function () { diag("mic", "speech detected"); };
       rec.onresult = function (e) {
+        diag("mic", "result");
         var finalText = "", interim = "", i, j;
         for (i = 0; i < e.results.length; i++) {
           var res = e.results[i];
@@ -638,6 +651,7 @@
       };
       rec.onerror = function (e) {
         var code = e && e.error;
+        diag("mic", "error: " + code);
         if (code === "not-allowed" || code === "service-not-allowed") {
           showMicError("Microphone blocked. Allow the mic for this site in your browser settings, then tap Start again.");
           finish(false, code);
@@ -648,7 +662,7 @@
           finish(false, code);
         }
       };
-      rec.onend = function () { finish(!!best.pass); };
+      rec.onend = function () { diag("mic", "closed"); finish(!!best.pass); };
       try { rec.start(); } catch (e) { finish(false, "start-failed"); }
     });
   }
@@ -759,6 +773,14 @@
 
   function sleep(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
 
+  // Explicit audio-session hint (iOS 17+). Lets WebKit route to Bluetooth correctly per phase.
+  function setSession(type) {
+    try {
+      if (navigator.audioSession) { navigator.audioSession.type = type; diag("session", type); }
+      else diag("session", "api n/a");
+    } catch (e) { diag("session", "err"); }
+  }
+
   // ---------- main loop ----------
   async function loop(run) {
     while (S.running && run === S.run) {
@@ -766,15 +788,19 @@
       var line = S.lines[S.idx];
       renderCounts(); renderTarget(null); setHeard("", null);
       var r;
-      if (S.mode === "loop") {
+      if (S.mode === "loop" && S.route !== "headset") {
         r = await drill(line, run);
       } else {
+        var headset = S.route === "headset";
+        if (headset) { setSession("playback"); await sleep(250); }
         setPhase("speaking", "Listen", "Line " + (S.idx + 1) + " of " + S.lines.length);
         await speak(line);
         if (!S.running || run !== S.run) return;
         S.attempt++; renderCounts();
+        if (headset) { setSession("play-and-record"); await sleep(250); }
         setPhase("listening", "Your turn", "Say the line now.");
         r = await listen(line);
+        if (headset) setSession("playback");
       }
       if (!S.running || run !== S.run) return;
 
@@ -813,6 +839,7 @@
     renderButtons();
     el.setup.open = false;
     requestWake();
+    setSession(S.route === "headset" ? "playback" : "auto");
     // Prime iOS audio inside the user gesture with an empty utterance.
     try { if (synth) { var u = new SpeechSynthesisUtterance(""); synth.speak(u); } } catch (e) {}
     loop(S.run);
@@ -822,6 +849,7 @@
     try { if (S.rec) S.rec.abort(); } catch (e) {}
     try { if (synth) synth.cancel(); } catch (e) {}
     setPhase("idle", "Paused", "Tap Resume to keep going from this line.");
+    setSession("auto");
     renderButtons(); releaseWake();
   }
   function restartLine() {
@@ -867,6 +895,8 @@
     refreshVoices();
   });
   el.voice.addEventListener("change", function () { S.voiceURI = el.voice.value; save("voice", S.voiceURI); });
+  el.route.value = S.route;
+  el.route.addEventListener("change", function () { S.route = el.route.value; save("route", S.route); });
   el.mode.value = S.mode;
   el.mode.addEventListener("change", function () { S.mode = el.mode.value; save("mode", S.mode); });
   el.guard.checked = !!S.guard;
