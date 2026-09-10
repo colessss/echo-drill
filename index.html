@@ -279,6 +279,7 @@
       <div class="t empty" id="heard">nothing yet</div>
       <div class="scoreline"><span>words <b id="score">&ndash;</b></span><span>attempt <b id="attempt">0</b></span></div>
       <div class="scoreline" id="diag" style="color:var(--ink-3)">mic: idle &middot; voice: idle</div>
+      <button class="btn" id="output" type="button" hidden style="min-height:40px;padding:8px 12px;font-size:13px">Choose audio output (AirPods / AirPlay)</button>
     </div>
   </section>
 
@@ -416,7 +417,7 @@
     need: $("need"), needOut: $("needOut"), rate: $("rate"), rateOut: $("rateOut"),
     window: $("window"), windowOut: $("windowOut"), gap: $("gap"), gapOut: $("gapOut"),
     mode: $("mode"), guard: $("guard"), route: $("route"),
-    src: $("src"), xi: $("xi"), xivoice: $("xivoice"), xiload: $("xiload"), xistatus: $("xistatus"), xiFields: $("xiFields"),
+    output: $("output"), src: $("src"), xi: $("xi"), xivoice: $("xivoice"), xiload: $("xiload"), xistatus: $("xistatus"), xiFields: $("xiFields"),
     start: $("start"), replay: $("replay"), gotit: $("gotit"), skip: $("skip"),
     unsupported: $("unsupported"), micerr: $("micerr"), setup: $("setup")
   };
@@ -609,6 +610,7 @@
   var player = new Audio();
   player.preload = "auto";
   player.setAttribute("playsinline", "");
+  player.setAttribute("x-webkit-airplay", "allow");
   var memCache = {};
   function unlockPlayer() {
     try { player.src = SILENT; var pr = player.play(); if (pr && pr.catch) pr.catch(function () {}); } catch (e) {}
@@ -937,7 +939,7 @@
     renderButtons();
     el.setup.open = false;
     requestWake();
-    setSession(S.route === "headset" ? "playback" : "auto");
+    setSession(S.route === "headset" ? "playback" : (useEleven() ? "play-and-record" : "auto"));
     unlockPlayer();
     // Prime iOS audio inside the user gesture with an empty utterance.
     try { if (synth) { var u = new SpeechSynthesisUtterance(""); synth.speak(u); } } catch (e) {}
@@ -976,6 +978,13 @@
 
   // ---------- wiring ----------
   el.start.addEventListener("click", function () { S.running ? stop() : start(); });
+  if (typeof player.webkitShowPlaybackTargetPicker === "function") {
+    el.output.hidden = false;
+    el.output.addEventListener("click", function () {
+      try { if (!player.src) player.src = SILENT; player.webkitShowPlaybackTargetPicker(); }
+      catch (e) { diag("voice", "output picker failed"); }
+    });
+  }
   el.replay.addEventListener("click", restartLine);
   el.skip.addEventListener("click", advance);
   el.gotit.addEventListener("click", advance);
