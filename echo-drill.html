@@ -277,7 +277,7 @@
     <div class="heard">
       <div class="k">You said</div>
       <div class="t empty" id="heard">nothing yet</div>
-      <div class="scoreline"><span>match <b id="score">&ndash;</b></span><span>attempt <b id="attempt">0</b></span></div>
+      <div class="scoreline"><span>words <b id="score">&ndash;</b></span><span>attempt <b id="attempt">0</b></span></div>
     </div>
   </section>
 
@@ -317,9 +317,9 @@
         </div>
       </div>
       <div class="field">
-        <label for="strict">Strictness <output id="strictOut">80%</output></label>
-        <input type="range" id="strict" min="50" max="100" step="5" value="80">
-        <p class="hint">Share of the line's words you must get for it to count. Lower it if the mic keeps missing.</p>
+        <label for="need">Words needed to pass <output id="needOut">3 words</output></label>
+        <input type="range" id="need" min="1" max="8" step="1" value="3">
+        <p class="hint">The line passes as soon as this many of its words are heard. Lines shorter than this need every word.</p>
       </div>
       <div class="field">
         <label for="mode">Reading</label>
@@ -381,7 +381,7 @@
     heard: $("heard"), score: $("score"), attempt: $("attempt"),
     pos: $("pos"), total: $("total"), bar: $("bar"), done: $("done"),
     lines: $("lines"), linecount: $("linecount"), lang: $("lang"), voice: $("voice"),
-    strict: $("strict"), strictOut: $("strictOut"), rate: $("rate"), rateOut: $("rateOut"),
+    need: $("need"), needOut: $("needOut"), rate: $("rate"), rateOut: $("rateOut"),
     window: $("window"), windowOut: $("windowOut"), gap: $("gap"), gapOut: $("gapOut"),
     mode: $("mode"), guard: $("guard"),
     start: $("start"), replay: $("replay"), gotit: $("gotit"), skip: $("skip"),
@@ -402,7 +402,7 @@
     idx: load("idx", 0),
     lang: load("lang", "en-US"),
     voiceURI: load("voice", ""),
-    strict: load("strict", 80),
+    need: load("need", 3),
     rate: load("rate", 0.95),
     window: load("window", 7),
     gap: load("gap", 2),
@@ -466,6 +466,12 @@
     }
     return { hits: hits, score: dp[m][n] / m };
   }
+  function hitCount(r) { return (r.hits || []).filter(Boolean).length; }
+  function passes(r, targetText) {
+    if (r.mode === "chars") return r.score >= 0.5;
+    var total = words(targetText).length;
+    return hitCount(r) >= Math.min(S.need, total);
+  }
   // CJK and other unspaced scripts: fall back to character overlap.
   function scoreFor(targetText, heardText) {
     var t = words(targetText), h = words(heardText);
@@ -504,10 +510,11 @@
     el.label.textContent = label;
     el.sub.textContent = sub || "";
   }
-  function setHeard(text, score) {
+  function setHeard(text, r) {
     if (text) { el.heard.textContent = text; el.heard.classList.remove("empty"); }
     else { el.heard.textContent = "nothing yet"; el.heard.classList.add("empty"); }
-    el.score.textContent = (score == null) ? "\u2013" : Math.round(score * 100) + "%";
+    var total = words(S.lines[S.idx] || "").length;
+    el.score.textContent = r ? hitCount(r) + "/" + total : "\u2013/" + total;
   }
   function renderCounts() {
     el.total.textContent = S.lines.length;
@@ -586,17 +593,17 @@
       rec.interimResults = true;
       rec.continuous = false;
       rec.maxAlternatives = 3;
-      var best = { text: "", score: 0, hits: null };
+      var best = { text: "", score: 0, hits: null, pass: false };
       var settled = false;
-      var threshold = S.strict / 100;
       var timer = setTimeout(function () { try { rec.stop(); } catch (e) {} }, S.window * 1000);
 
       function consider(text) {
         var r = scoreFor(targetText, text);
-        if (r.score >= best.score || !best.text) best = { text: text, score: r.score, hits: r.hits };
-        setHeard(best.text, best.score);
+        var ok = passes(r, targetText);
+        if (r.score >= best.score || !best.text) best = { text: text, score: r.score, hits: r.hits, pass: ok, r: r };
+        setHeard(best.text, best.r);
         renderTarget(best.hits);
-        if (r.score >= threshold) finish(true);
+        if (ok) finish(true);
       }
       function finish(matched, error) {
         if (settled) return;
@@ -633,7 +640,7 @@
           finish(false, code);
         }
       };
-      rec.onend = function () { finish(best.score >= threshold); };
+      rec.onend = function () { finish(!!best.pass); };
       try { rec.start(); } catch (e) { finish(false, "start-failed"); }
     });
   }
@@ -644,8 +651,7 @@
     return new Promise(function (resolve) {
       if (!SR) return resolve({ matched: false, error: "unsupported" });
       var active = true;
-      var threshold = S.strict / 100;
-      var best = { text: "", score: 0, hits: null };
+      var best = { text: "", score: 0, hits: null, r: null };
       var rec = null;
       var restartTimer = null;
 
@@ -664,10 +670,10 @@
       function consider(text) {
         if (!text) return;
         var r = scoreFor(targetText, text);
-        if (r.score >= best.score || !best.text) best = { text: text, score: r.score, hits: r.hits };
-        setHeard(best.text, best.score);
+        if (r.score >= best.score || !best.text) best = { text: text, score: r.score, hits: r.hits, r: r };
+        setHeard(best.text, best.r);
         renderTarget(best.hits);
-        if (r.score >= threshold) finish(true);
+        if (passes(r, targetText)) finish(true);
       }
       function startRec() {
         if (!active) return;
@@ -847,7 +853,7 @@
       S[key] = parseFloat(input.value); save(key, S[key]); out.textContent = fmt(S[key]);
     });
   }
-  bindRange(el.strict, el.strictOut, "strict", function (v) { return v + "%"; });
+  bindRange(el.need, el.needOut, "need", function (v) { return v + (v === 1 ? " word" : " words"); });
   bindRange(el.rate, el.rateOut, "rate", function (v) { return v.toFixed(2).replace(/0$/, "") + "\u00D7"; });
   bindRange(el.window, el.windowOut, "window", function (v) { return v + "s"; });
   bindRange(el.gap, el.gapOut, "gap", function (v) { return v.toFixed(1) + "s"; });
